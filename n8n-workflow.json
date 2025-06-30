@@ -1,0 +1,330 @@
+{
+  "name": "Resume Job Matching Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-analysis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "resume-analysis-webhook"
+    },
+    {
+      "parameters": {
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "message": "You are an expert resume analyzer. Analyze the provided resume text and extract key skills, experience level, job titles, and industry. Return a JSON object with extracted information."
+            },
+            {
+              "role": "user", 
+              "message": "=Resume Text: {{ $json.resumeText }}\n\nPlease analyze this resume and extract:\n1. Key technical skills\n2. Years of experience\n3. Current/most recent job title\n4. Industry/field\n5. Preferred job locations (if mentioned)\n6. Education level\n\nReturn as structured JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "openai-resume-analysis",
+      "name": "OpenAI Resume Analysis",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://linkedin-api8.p.rapidapi.com/search-jobs",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "rapidApiApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "keywords",
+              "value": "={{ $json.skills.join(' OR ') }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $json.location || 'United States' }}"
+            },
+            {
+              "name": "datePosted", 
+              "value": "pastWeek"
+            },
+            {
+              "name": "jobType",
+              "value": "fullTime"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-RapidAPI-Host",
+              "value": "linkedin-api8.p.rapidapi.com"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "linkedin-job-search",
+      "name": "LinkedIn Job Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 200],
+      "credentials": {
+        "rapidApiApi": {
+          "id": "rapidapi-credentials",
+          "name": "RapidAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://jsearch.p.rapidapi.com/search",
+        "authentication": "predefinedCredentialType", 
+        "nodeCredentialType": "rapidApiApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.jobTitle }} {{ $json.skills.slice(0,3).join(' ') }}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            },
+            {
+              "name": "num_pages",
+              "value": "3"
+            },
+            {
+              "name": "date_posted",
+              "value": "week"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-RapidAPI-Host", 
+              "value": "jsearch.p.rapidapi.com"
+            }
+          ]
+        }
+      },
+      "id": "indeed-job-search",
+      "name": "Indeed/JSearch API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 400],
+      "credentials": {
+        "rapidApiApi": {
+          "id": "rapidapi-credentials",
+          "name": "RapidAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "message": "You are a career matching expert. Analyze job postings and match them with candidate profiles. Score each job match from 0-100 based on skill alignment, experience level, and requirements fit."
+            },
+            {
+              "role": "user",
+              "message": "=Candidate Profile: {{ $('OpenAI Resume Analysis').item.json.choices[0].message.content }}\n\nLinkedIn Jobs: {{ $('LinkedIn Job Search').item.json }}\n\nIndeed Jobs: {{ $('Indeed/JSearch API').item.json }}\n\nAnalyze and return top 10 job matches with match scores, reasons for match, and application recommendations."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "job-matching-analysis",
+      "name": "Job Matching Analysis", 
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "message": "You are an ATS (Applicant Tracking System) expert. Analyze resumes for ATS compatibility and provide specific, actionable improvement suggestions."
+            },
+            {
+              "role": "user",
+              "message": "=Resume Text: {{ $json.resumeText }}\n\nAnalyze this resume for ATS optimization and provide:\n1. Current ATS score (0-100)\n2. Top 5 specific improvements with impact scores\n3. Missing keywords for the target industry\n4. Formatting issues\n5. Content optimization suggestions\n\nBe specific and actionable."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "ats-optimization-analysis",
+      "name": "ATS Optimization Analysis",
+      "type": "n8n-nodes-base.openAi", 
+      "typeVersion": 1,
+      "position": [460, 500],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all analysis results\nconst resumeAnalysis = $('OpenAI Resume Analysis').item.json.choices[0].message.content;\nconst atsAnalysis = $('ATS Optimization Analysis').item.json.choices[0].message.content;\nconst jobMatches = $('Job Matching Analysis').item.json.choices[0].message.content;\n\n// Parse JSON responses\nlet parsedResumeAnalysis, parsedAtsAnalysis, parsedJobMatches;\n\ntry {\n  parsedResumeAnalysis = JSON.parse(resumeAnalysis);\n} catch(e) {\n  parsedResumeAnalysis = { error: 'Failed to parse resume analysis' };\n}\n\ntry {\n  parsedAtsAnalysis = JSON.parse(atsAnalysis);\n} catch(e) {\n  parsedAtsAnalysis = { error: 'Failed to parse ATS analysis' };\n}\n\ntry {\n  parsedJobMatches = JSON.parse(jobMatches);\n} catch(e) {\n  parsedJobMatches = { error: 'Failed to parse job matches' };\n}\n\n// Create final response\nconst response = {\n  success: true,\n  timestamp: new Date().toISOString(),\n  data: {\n    resumeAnalysis: parsedResumeAnalysis,\n    atsOptimization: parsedAtsAnalysis,\n    jobMatches: parsedJobMatches,\n    summary: {\n      atsScore: parsedAtsAnalysis.atsScore || 0,\n      totalJobMatches: Array.isArray(parsedJobMatches.matches) ? parsedJobMatches.matches.length : 0,\n      topMatch: Array.isArray(parsedJobMatches.matches) && parsedJobMatches.matches.length > 0 \n        ? parsedJobMatches.matches[0] \n        : null\n    }\n  }\n};\n\nreturn [response];"
+      },
+      "id": "combine-results",
+      "name": "Combine Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "response-node",
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Resume Analysis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ATS Optimization Analysis", 
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Resume Analysis": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Job Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Indeed/JSearch API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Job Search": {
+      "main": [
+        [
+          {
+            "node": "Job Matching Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Indeed/JSearch API": {
+      "main": [
+        [
+          {
+            "node": "Job Matching Analysis",
+            "type": "main", 
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Matching Analysis": {
+      "main": [
+        [
+          {
+            "node": "Combine Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ATS Optimization Analysis": {
+      "main": [
+        [
+          {
+            "node": "Combine Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Results": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "America/New_York"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "resume-job-matching-workflow",
+  "tags": []
+}
